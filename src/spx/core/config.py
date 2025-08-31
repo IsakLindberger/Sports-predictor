@@ -36,6 +36,38 @@ class FeatureConfig(BaseModel):
     elo_margin_multiplier: float = Field(0.1, description="Margin of victory multiplier")
 
 
+class ScorelineOptimizerConfig(BaseModel):
+    """Scoreline model optimizer configuration."""
+    
+    method: str = Field("L-BFGS-B", description="Optimization method")
+    max_iter: int = Field(500, description="Maximum iterations")
+    tol: float = Field(1e-6, description="Convergence tolerance")
+    restarts: int = Field(1, description="Number of restarts")
+    verbose: bool = Field(True, description="Verbose optimizer output")
+
+
+class ScorelineRegularizationConfig(BaseModel):
+    """Scoreline model regularization configuration."""
+    
+    l2: float = Field(1e-3, description="L2 regularization strength")
+
+
+class ScorelineTrainingConfig(BaseModel):
+    """Scoreline model training configuration."""
+    
+    goal_cap: int = Field(6, description="Maximum goals per team")
+
+
+class ScorelineConfig(BaseModel):
+    """Enhanced scoreline model configuration."""
+    
+    model: str = Field("bivariate_poisson", description="Scoreline model type")
+    optimizer: ScorelineOptimizerConfig = Field(default_factory=ScorelineOptimizerConfig)
+    regularization: ScorelineRegularizationConfig = Field(default_factory=ScorelineRegularizationConfig)
+    init: Dict[str, str] = Field({"strategy": "heuristic"}, description="Initialization strategy")
+    training: ScorelineTrainingConfig = Field(default_factory=ScorelineTrainingConfig)
+
+
 class ModelConfig(BaseModel):
     """Model configuration."""
     
@@ -89,6 +121,7 @@ class Config(BaseModel):
     data: DataConfig
     features: FeatureConfig
     model: ModelConfig
+    scoreline: Optional[ScorelineConfig] = Field(None, description="Enhanced scoreline configuration")
     simulation: SimulationConfig
     training: TrainingConfig
     

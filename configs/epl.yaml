@@ -39,14 +39,30 @@ model:
   # Calibration
   calibration_method: "isotonic"  # 'isotonic' or 'sigmoid'
   
-  # Bivariate Poisson scoreline model
+  # Bivariate Poisson scoreline model (legacy parameters for backward compatibility)
   max_goals: 6                    # Maximum goals to model explicitly
   dixon_coles_decay: 0.01         # Time decay factor
   dixon_coles_rho: -0.1           # Correlation parameter for low scores
 
+# Enhanced scoreline model configuration
+scoreline:
+  model: bivariate_poisson
+  optimizer:
+    method: L-BFGS-B        # robust quasi-Newton
+    max_iter: 200           # reduced for faster testing
+    tol: 1e-4               # less strict tolerance for speed
+    restarts: 1             # only one run during dev
+    verbose: true           # log optimizer progress
+  regularization:
+    l2: 1e-3                # helps conditioning & stability
+  init:
+    strategy: heuristic     # or "warm_start_from_last" if you have saved params
+  training:
+    goal_cap: 6             # truncate score distribution (max 6 goals per team)
+
 # Season simulation parameters
 simulation:
-  n_simulations: 20000            # Number of Monte Carlo runs
+  n_simulations: 100000           # High precision Monte Carlo runs
   random_seed: 42                 # For reproducibility
   use_head_to_head: true          # Use H2H for tie-breaking
 

@@ -72,6 +72,12 @@ class SeasonSimulator:
         top4_finishes = {team: 0 for team in teams}
         relegation_finishes = {team: 0 for team in teams}
         
+        # Track cumulative statistics for average table
+        cumulative_stats = {team: {
+            'points': 0, 'wins': 0, 'draws': 0, 'losses': 0,
+            'goals_for': 0, 'goals_against': 0, 'games_played': 0
+        } for team in teams}
+        
         # Run simulations
         for sim in tqdm(range(self.n_simulations), desc="Simulating seasons"):
             season_table = self._simulate_single_season(
@@ -88,6 +94,17 @@ class SeasonSimulator:
                     top4_finishes[team] += 1
                 if pos >= len(teams) - 2:  # Bottom 3
                     relegation_finishes[team] += 1
+            
+            # Accumulate statistics for average table
+            for team in teams:
+                team_stats = season_table.loc[team]
+                cumulative_stats[team]['points'] += team_stats['points']
+                cumulative_stats[team]['wins'] += team_stats['wins']
+                cumulative_stats[team]['draws'] += team_stats['draws']
+                cumulative_stats[team]['losses'] += team_stats['losses']
+                cumulative_stats[team]['goals_for'] += team_stats['goals_for']
+                cumulative_stats[team]['goals_against'] += team_stats['goals_against']
+                cumulative_stats[team]['games_played'] += team_stats['played']
         
         # Generate predictions for each team
         season_predictions = []
@@ -129,8 +146,68 @@ class SeasonSimulator:
             
             season_predictions.append(season_pred)
         
+        # Calculate average table
+        self.average_table = self._calculate_average_table(cumulative_stats, teams)
+        
         logger.info(f"Generated season predictions for {len(teams)} teams")
         return season_predictions
+    
+    def _calculate_average_table(self, cumulative_stats: Dict, teams: List[str]) -> pd.DataFrame:
+        """Calculate average table across all simulations.
+        
+        Args:
+            cumulative_stats: Cumulative statistics from all simulations
+            teams: List of team names
+            
+        Returns:
+            DataFrame with average table statistics
+        """
+        logger.info("Calculating average table from all simulations")
+        
+        avg_table_data = []
+        for team in teams:
+            stats = cumulative_stats[team]
+            avg_stats = {
+                'Team': team,
+                'Games_Played': stats['games_played'] / self.n_simulations,
+                'Wins': stats['wins'] / self.n_simulations,
+                'Draws': stats['draws'] / self.n_simulations,
+                'Losses': stats['losses'] / self.n_simulations,
+                'Goals_For': stats['goals_for'] / self.n_simulations,
+                'Goals_Against': stats['goals_against'] / self.n_simulations,
+                'Goal_Difference': (stats['goals_for'] - stats['goals_against']) / self.n_simulations,
+                'Points': stats['points'] / self.n_simulations,
+            }
+            avg_table_data.append(avg_stats)
+        
+        # Create DataFrame and sort by points
+        avg_table = pd.DataFrame(avg_table_data)
+        avg_table = avg_table.sort_values(['Points', 'Goal_Difference', 'Goals_For'], 
+                                         ascending=[False, False, False])
+        avg_table = avg_table.reset_index(drop=True)
+        avg_table.index = avg_table.index + 1  # Start positions from 1
+        avg_table.index.name = 'Position'
+        
+        logger.info("Average table calculated successfully")
+        return avg_table
+    
+    def save_average_table(self, filepath: str) -> None:
+        """Save the average table to a file.
+        
+        Args:
+            filepath: Path to save the average table
+        """
+        if not hasattr(self, 'average_table'):
+            logger.error("Average table not calculated. Run simulate_season first.")
+            return
+        
+        self.average_table.to_csv(filepath)
+        logger.info(f"Average table saved to {filepath}")
+        
+        # Also log the table to console
+        logger.info("Average Season Table (across {} simulations):", self.n_simulations)
+        print(f"\n=== AVERAGE SEASON TABLE ({self.n_simulations:,} simulations) ===")
+        print(self.average_table.round(2).to_string())
     
     def _simulate_single_season(
         self,

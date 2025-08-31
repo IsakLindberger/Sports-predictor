@@ -90,14 +90,23 @@ def train(
     scoreline_only: bool = typer.Option(False, "--scoreline-only", help="Train only scoreline model")
 ) -> None:
     """Train prediction models."""
-    logger.info("Starting model training")
+    import time
+    from datetime import datetime, timedelta
+    
+    start_time = time.time()
+    logger.info("🚀 Starting model training")
+    logger.info(f"📅 Training started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     # Load configuration
+    step_start = time.time()
     cfg = load_config(config)
+    logger.info(f"✅ Configuration loaded ({time.time() - step_start:.1f}s)")
     
     # Load processed matches
+    step_start = time.time()
     matches_file = cfg.data.processed_dir / "matches.parquet"
     matches = load_matches_parquet(matches_file)
+    logger.info(f"✅ Loaded {len(matches)} total matches ({time.time() - step_start:.1f}s)")
     
     # Filter to training period
     training_matches = [
@@ -105,9 +114,22 @@ def train(
         if cfg.training.train_start_date <= m.date <= cfg.training.train_end_date
     ]
     
-    logger.info(f"Training on {len(training_matches)} matches")
+    logger.info(f"🎯 Training on {len(training_matches)} matches from {cfg.training.train_start_date} to {cfg.training.train_end_date}")
+    
+    # Estimate training time based on data size and models to train
+    base_time = len(training_matches) / 1000  # Base time per 1000 matches
+    if not outcome_only and not scoreline_only:
+        estimated_minutes = max(3, int(base_time * 2))  # Both models
+    else:
+        estimated_minutes = max(2, int(base_time))  # Single model
+    
+    estimated_completion = datetime.now() + timedelta(minutes=estimated_minutes)
+    logger.info(f"⏱️ Estimated training time: ~{estimated_minutes} minutes")
+    logger.info(f"🎯 Estimated completion: {estimated_completion.strftime('%H:%M:%S')}")
     
     # Calculate Elo ratings
+    logger.info("📊 Calculating Elo ratings...")
+    step_start = time.time()
     elo_system = EloRatingSystem(
         k_factor=cfg.features.elo_k_factor,
         base_rating=cfg.features.elo_base_rating,
@@ -118,8 +140,11 @@ def train(
     elo_ratings = elo_system.update_ratings(training_matches)
     ratings_file = cfg.data.processed_dir / "ratings.parquet"
     save_ratings_parquet(elo_ratings, ratings_file)
+    logger.info(f"✅ Elo ratings calculated and saved ({time.time() - step_start:.1f}s)")
     
     # Create features
+    logger.info("🔧 Creating features...")
+    step_start = time.time()
     feature_engineer = FeatureEngineer(
         lookback_games=cfg.features.lookback_games,
         min_games_for_rating=cfg.features.min_games_for_rating
@@ -127,6 +152,7 @@ def train(
     
     rating_dict = elo_system.get_rating_history()
     features_df = feature_engineer.create_features(training_matches, rating_dict)
+    logger.info(f"✅ Features created: {len(features_df)} rows, {len(features_df.columns)} columns ({time.time() - step_start:.1f}s)")
     
     # Train models
     models_dir = cfg.data.processed_dir / "models"
@@ -134,7 +160,8 @@ def train(
     
     if not scoreline_only:
         # Train outcome model
-        logger.info("Training outcome model")
+        logger.info("🤖 Training outcome model (XGBoost)...")
+        step_start = time.time()
         outcome_model = OutcomeModel(
             n_estimators=cfg.model.xgb_n_estimators,
             learning_rate=cfg.model.xgb_learning_rate,
@@ -151,29 +178,59 @@ def train(
         X = features_df[feature_cols]
         y = features_df['outcome'].map({'H': 2, 'D': 1, 'A': 0}).values
         
+        logger.info(f"   📊 Training data: {len(X)} samples, {len(feature_cols)} features")
+        
         # Train
         metrics = outcome_model.train(X, y)
-        logger.info(f"Outcome model metrics: {metrics}")
+        logger.info(f"✅ Outcome model trained ({time.time() - step_start:.1f}s)")
+        logger.info(f"   📈 Model metrics: {metrics}")
         
         # Save model
         outcome_model.save_model(models_dir / "outcome_model.joblib")
+        logger.info("   💾 Outcome model saved")
     
     if not outcome_only:
         # Train scoreline model
-        logger.info("Training scoreline model")
+        logger.info("⚽ Training scoreline model (Bivariate Poisson)...")
+        step_start = time.time()
         scoreline_model = BivariatePoisson(
             max_goals=cfg.model.max_goals,
             rho=cfg.model.dixon_coles_rho,
             time_decay=cfg.model.dixon_coles_decay
         )
         
-        metrics = scoreline_model.train(training_matches)
-        logger.info(f"Scoreline model metrics: {metrics}")
+        logger.info(f"   📊 Training on {len(training_matches)} historical matches")
+        
+        # Pass full config to training method for enhanced optimizer settings
+        config_dict = {
+            'scoreline': getattr(cfg, 'scoreline', {}),
+            'model': cfg.model
+        }
+        metrics = scoreline_model.train(training_matches, config_dict)
+        logger.info(f"✅ Scoreline model trained ({time.time() - step_start:.1f}s)")
+        logger.info(f"   📈 Model metrics: {metrics}")
         
         # Save model
         scoreline_model.save_model(models_dir / "scoreline_model.joblib")
+        logger.info("   💾 Scoreline model saved")
     
-    logger.info("Model training completed successfully")
+    # Training completion summary
+    total_time = time.time() - start_time
+    completion_time = datetime.now()
+    
+    logger.info("🎉 Model training completed successfully!")
+    logger.info(f"⏱️ Total training time: {total_time:.1f} seconds ({total_time/60:.1f} minutes)")
+    logger.info(f"✅ Training completed at: {completion_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Summary of what was trained
+    trained_models = []
+    if not scoreline_only:
+        trained_models.append("XGBoost Outcome Model")
+    if not outcome_only:
+        trained_models.append("Bivariate Poisson Scoreline Model")
+    
+    logger.info(f"📋 Models trained: {', '.join(trained_models)}")
+    logger.info(f"🏆 Ready for predictions and season simulation!")
 
 
 @app.command()
@@ -286,6 +343,10 @@ def simulate(
     
     season_predictions = simulator.simulate_season(fixtures, predictions)
     
+    # Save average table
+    avg_table_file = cfg.data.processed_dir / "average_season_table.csv"
+    simulator.save_average_table(str(avg_table_file))
+    
     # Save results
     output_file = Path(output) if output else cfg.data.processed_dir / "season_predictions.parquet"
     
@@ -301,6 +362,7 @@ def simulate(
     results_df.to_parquet(output_file, index=False)
     
     logger.info(f"Season simulation completed, results saved to {output_file}")
+    logger.info(f"Average season table saved to {avg_table_file}")
     
     # Print summary
     _print_simulation_summary(season_predictions)
