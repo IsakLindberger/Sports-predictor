@@ -1,0 +1,1 @@
+"""Football adapters package."""

@@ -1,0 +1,58 @@
+# English Premier League Configuration
+# This configuration defines all parameters for EPL prediction models
+
+league: "epl"
+adapter: "EPLAdapter"
+
+# Data configuration
+data:
+  raw_dir: "data/raw"
+  interim_dir: "data/interim" 
+  processed_dir: "data/processed"
+  source_files:
+    - "epl_2023_24.csv"
+    - "epl_2024_25.csv"
+    - "epl_2025_26.csv"
+
+# Feature engineering parameters
+features:
+  lookback_games: 6              # Games for rolling form features
+  min_games_for_rating: 10       # Minimum games before using Elo
+  home_advantage: true           # Include home advantage feature
+  
+  # Elo rating system parameters
+  elo_k_factor: 20.0            # Rating change scale factor
+  elo_base_rating: 1500.0       # Starting rating for new teams
+  elo_home_boost: 30.0          # Home team rating boost
+  elo_margin_multiplier: 0.1    # Goal margin impact on rating change
+
+# Model parameters
+model:
+  # XGBoost outcome model
+  xgb_n_estimators: 100
+  xgb_learning_rate: 0.1
+  xgb_max_depth: 6
+  xgb_min_child_weight: 1
+  xgb_subsample: 0.8
+  xgb_colsample_bytree: 0.8
+  
+  # Calibration
+  calibration_method: "isotonic"  # 'isotonic' or 'sigmoid'
+  
+  # Bivariate Poisson scoreline model
+  max_goals: 6                    # Maximum goals to model explicitly
+  dixon_coles_decay: 0.01         # Time decay factor
+  dixon_coles_rho: -0.1           # Correlation parameter for low scores
+
+# Season simulation parameters
+simulation:
+  n_simulations: 20000            # Number of Monte Carlo runs
+  random_seed: 42                 # For reproducibility
+  use_head_to_head: true          # Use H2H for tie-breaking
+
+# Training/evaluation periods
+training:
+  train_start_date: "2020-08-01"  # Training data start
+  train_end_date: "2025-08-30"    # Training data end (include 2025-26 data)
+  test_start_date: "2025-08-01"   # Test data start
+  test_end_date: "2026-05-31"     # Test data end

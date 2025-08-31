@@ -1,0 +1,55 @@
+# Simplified EPL configuration for limited data
+league: "epl"
+adapter: "EPLAdapter"
+
+# Data configuration
+data:
+  raw_dir: "data/raw"
+  interim_dir: "data/interim" 
+  processed_dir: "data/processed"
+  source_files:
+    - "epl_2024_25.csv"
+    - "epl_2025_26.csv"
+
+# Feature engineering parameters
+features:
+  lookback_games: 6              # Games for rolling form features
+  min_games_for_rating: 10       # Minimum games before using Elo
+  home_advantage: true           # Include home advantage feature
+  
+  # Elo rating system parameters
+  elo_k_factor: 20.0            # Rating change scale factor
+  elo_base_rating: 1500.0       # Starting rating for new teams
+  elo_home_boost: 30.0          # Home team rating boost
+  elo_margin_multiplier: 0.1    # Goal margin impact on rating change
+
+# Model parameters
+model:
+  # Simple logistic regression for limited data
+  xgb_n_estimators: 50           # Reduced from 100
+  xgb_learning_rate: 0.1
+  xgb_max_depth: 3               # Reduced from 6
+  xgb_min_child_weight: 3        # Increased for regularization
+  xgb_subsample: 0.8
+  xgb_colsample_bytree: 0.8
+  
+  # Calibration - disabled for small datasets
+  calibration_method: "sigmoid"    # Use sigmoid instead of null
+  
+  # Bivariate Poisson scoreline model
+  max_goals: 6                   
+  dixon_coles_decay: 0.01        
+  dixon_coles_rho: -0.1          
+
+# Season simulation parameters
+simulation:
+  n_simulations: 1000            # Reduced from 20000 for faster runs
+  random_seed: 42                
+  use_head_to_head: true         
+
+# Training/evaluation periods
+training:
+  train_start_date: "2024-08-01"
+  train_end_date: "2025-08-30"    
+  test_start_date: "2025-08-01"   
+  test_end_date: "2026-05-31"
