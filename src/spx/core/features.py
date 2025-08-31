@@ -78,6 +78,291 @@ class FeatureEngineer:
         target_cols = ['outcome', 'home_goals', 'away_goals']
         return df[feature_cols + target_cols + ['date', 'home_team', 'away_team']]
     
+    def _calculate_single_match_features(
+        self,
+        match_row: pd.Series,
+        historical_matches: List[Match],
+        ratings: Optional[Dict[str, Dict[Date, float]]] = None
+    ) -> Dict[str, float]:
+        """Calculate features for a single match efficiently.
+        
+        Args:
+            match_row: Single match row
+            historical_matches: Historical matches for context
+            ratings: Optional Elo ratings
+            
+        Returns:
+            Dictionary of features
+        """
+        features = {}
+        
+        # Home advantage (always 1 for home team)
+        features['home_advantage'] = 1.0
+        
+        # Calculate form features
+        home_form = self._calculate_team_form(
+            match_row['home_team'], match_row['date'], historical_matches
+        )
+        away_form = self._calculate_team_form(
+            match_row['away_team'], match_row['date'], historical_matches
+        )
+        
+        features.update({
+            'home_form_points': home_form['points'],
+            'home_form_gf': home_form['goals_for'],
+            'home_form_ga': home_form['goals_against'],
+            'home_form_gd': home_form['goal_difference'],
+            'home_form_games': home_form['games'],
+            'away_form_points': away_form['points'],
+            'away_form_gf': away_form['goals_for'],
+            'away_form_ga': away_form['goals_against'],
+            'away_form_gd': away_form['goal_difference'],
+            'away_form_games': away_form['games']
+        })
+        
+        # Rest days (assume 7 days for future matches)
+        features['home_rest_days'] = 7.0
+        features['away_rest_days'] = 7.0
+        
+        # Elo ratings
+        if ratings:
+            home_elo = self._get_rating_at_date(
+                ratings, match_row['home_team'], match_row['date'].date()
+            )
+            away_elo = self._get_rating_at_date(
+                ratings, match_row['away_team'], match_row['date'].date()
+            )
+            features.update({
+                'home_elo': home_elo,
+                'away_elo': away_elo,
+                'elo_diff': home_elo - away_elo
+            })
+        
+        # Head-to-head features
+        h2h_stats = self._calculate_h2h_stats(
+            match_row['home_team'], match_row['away_team'], 
+            match_row['date'], historical_matches
+        )
+        features.update({
+            'h2h_home_wins': h2h_stats['home_wins'],
+            'h2h_draws': h2h_stats['draws'],
+            'h2h_away_wins': h2h_stats['away_wins'],
+            'h2h_games': h2h_stats['total_games']
+        })
+        
+        return features
+    
+        return features
+    
+    def create_single_prediction_features(
+        self,
+        home_team: str,
+        away_team: str,
+        match_date: Date,
+        historical_matches: List[Match],
+        ratings: Optional[Dict[str, Dict[Date, float]]] = None
+    ) -> Dict[str, float]:
+        """Create features for a single prediction without recalculating all historical features.
+        
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            match_date: Match date
+            historical_matches: Historical matches for context
+            ratings: Optional Elo ratings
+            
+        Returns:
+            Dictionary of features for this prediction
+        """
+        features = {}
+        
+        # Home advantage
+        features['home_advantage'] = 1.0
+        
+        # Calculate form features
+        home_form = self._calculate_team_form(
+            home_team, pd.to_datetime(match_date), historical_matches
+        )
+        away_form = self._calculate_team_form(
+            away_team, pd.to_datetime(match_date), historical_matches
+        )
+        
+        features.update({
+            'home_form_points': home_form['points'],
+            'home_form_gf': home_form['goals_for'],
+            'home_form_ga': home_form['goals_against'],
+            'home_form_gd': home_form['goal_difference'],
+            'home_form_games': home_form['games'],
+            'away_form_points': away_form['points'],
+            'away_form_gf': away_form['goals_for'],
+            'away_form_ga': away_form['goals_against'],
+            'away_form_gd': away_form['goal_difference'],
+            'away_form_games': away_form['games']
+        })
+        
+        # Rest days (assume 7 days for future matches)
+        features['home_rest_days'] = 7.0
+        features['away_rest_days'] = 7.0
+        
+        # Elo ratings
+        if ratings:
+            home_elo = self._get_rating_at_date(
+                ratings, home_team, match_date
+            )
+            away_elo = self._get_rating_at_date(
+                ratings, away_team, match_date
+            )
+            features.update({
+                'home_elo': home_elo,
+                'away_elo': away_elo,
+                'elo_diff': home_elo - away_elo
+            })
+        
+        # Head-to-head features
+        h2h_stats = self._calculate_h2h_stats(
+            home_team, away_team, 
+            pd.to_datetime(match_date), historical_matches
+        )
+        features.update({
+            'h2h_home_wins': h2h_stats['home_wins'],
+            'h2h_draws': h2h_stats['draws'],
+            'h2h_away_wins': h2h_stats['away_wins'],
+            'h2h_games': h2h_stats['total_games']
+        })
+        
+        return features
+    
+    def _calculate_team_form(
+        self,
+        team: str,
+        match_date: pd.Timestamp,
+        historical_matches: List[Match]
+    ) -> Dict[str, float]:
+        """Calculate team form statistics.
+        
+        Args:
+            team: Team name
+            match_date: Date of the match
+            historical_matches: Historical match data
+            
+        Returns:
+            Dictionary with form statistics
+        """
+        # Convert to DataFrame for easier processing
+        matches_df = pd.DataFrame([{
+            'date': pd.to_datetime(match.date),
+            'home_team': match.home_team,
+            'away_team': match.away_team,
+            'home_goals': match.home_goals,
+            'away_goals': match.away_goals,
+            'outcome': match.outcome
+        } for match in historical_matches])
+        
+        # Filter matches for this team before the prediction date
+        team_matches = matches_df[
+            ((matches_df['home_team'] == team) | (matches_df['away_team'] == team)) &
+            (matches_df['date'] < match_date)
+        ].sort_values('date').tail(self.lookback_games)
+        
+        if len(team_matches) == 0:
+            return {'points': 0, 'goals_for': 0, 'goals_against': 0, 
+                   'goal_difference': 0, 'games': 0}
+        
+        points = 0
+        goals_for = 0
+        goals_against = 0
+        
+        for _, match in team_matches.iterrows():
+            if match['home_team'] == team:
+                # Team was playing at home
+                goals_for += match['home_goals']
+                goals_against += match['away_goals']
+                if match['outcome'] == 'H':
+                    points += 3
+                elif match['outcome'] == 'D':
+                    points += 1
+            else:
+                # Team was playing away
+                goals_for += match['away_goals']
+                goals_against += match['home_goals']
+                if match['outcome'] == 'A':
+                    points += 3
+                elif match['outcome'] == 'D':
+                    points += 1
+        
+        return {
+            'points': points,
+            'goals_for': goals_for,
+            'goals_against': goals_against,
+            'goal_difference': goals_for - goals_against,
+            'games': len(team_matches)
+        }
+    
+    def _calculate_h2h_stats(
+        self,
+        home_team: str,
+        away_team: str,
+        match_date: pd.Timestamp,
+        historical_matches: List[Match]
+    ) -> Dict[str, int]:
+        """Calculate head-to-head statistics between two teams.
+        
+        Args:
+            home_team: Home team name
+            away_team: Away team name
+            match_date: Date of the match
+            historical_matches: Historical match data
+            
+        Returns:
+            Dictionary with h2h statistics
+        """
+        # Convert to DataFrame for easier processing
+        matches_df = pd.DataFrame([{
+            'date': pd.to_datetime(match.date),
+            'home_team': match.home_team,
+            'away_team': match.away_team,
+            'outcome': match.outcome
+        } for match in historical_matches])
+        
+        # Filter h2h matches before the prediction date
+        h2h_matches = matches_df[
+            (((matches_df['home_team'] == home_team) & (matches_df['away_team'] == away_team)) |
+             ((matches_df['home_team'] == away_team) & (matches_df['away_team'] == home_team))) &
+            (matches_df['date'] < match_date)
+        ]
+        
+        if len(h2h_matches) == 0:
+            return {'home_wins': 0, 'draws': 0, 'away_wins': 0, 'total_games': 0}
+        
+        home_wins = 0
+        draws = 0
+        away_wins = 0
+        
+        for _, match in h2h_matches.iterrows():
+            if match['home_team'] == home_team:
+                # Current home team was home in H2H
+                if match['outcome'] == 'H':
+                    home_wins += 1
+                elif match['outcome'] == 'D':
+                    draws += 1
+                else:
+                    away_wins += 1
+            else:
+                # Current home team was away in H2H
+                if match['outcome'] == 'A':
+                    home_wins += 1
+                elif match['outcome'] == 'D':
+                    draws += 1
+                else:
+                    away_wins += 1
+        
+        return {
+            'home_wins': home_wins,
+            'draws': draws,
+            'away_wins': away_wins,
+            'total_games': len(h2h_matches)
+        }
+    
     def _add_form_features(self, df: pd.DataFrame) -> List[str]:
         """Add rolling form features.
         
@@ -390,6 +675,63 @@ def create_target_variables(matches: List[Match]) -> Tuple[np.ndarray, np.ndarra
         np.array(home_goals),
         np.array(away_goals)
     )
+
+
+def prepare_prediction_features_efficient(
+    home_team: str,
+    away_team: str,
+    match_date: Date,
+    historical_matches: List[Match],
+    historical_features_df: pd.DataFrame,
+    ratings: Optional[Dict[str, Dict[Date, float]]] = None,
+    lookback_games: int = 6
+) -> Dict[str, float]:
+    """Efficiently prepare features for a single match prediction using pre-calculated features.
+    
+    Args:
+        home_team: Home team name
+        away_team: Away team name
+        match_date: Match date
+        historical_matches: Historical match data
+        historical_features_df: Pre-calculated features for historical matches
+        ratings: Optional Elo ratings
+        lookback_games: Number of games for form calculation
+        
+    Returns:
+        Dictionary of features
+    """
+    engineer = FeatureEngineer(lookback_games=lookback_games)
+    
+    # Create dummy match for feature extraction
+    dummy_match = Match(
+        date=match_date,
+        season="2025-26",
+        home_team=home_team,
+        away_team=away_team,
+        home_goals=0,  # Dummy values
+        away_goals=0,
+        outcome='D'
+    )
+    
+    # Convert to DataFrame for processing
+    dummy_df = pd.DataFrame([{
+        'date': pd.to_datetime(dummy_match.date),
+        'season': dummy_match.season,
+        'home_team': dummy_match.home_team,
+        'away_team': dummy_match.away_team,
+        'home_goals': dummy_match.home_goals,
+        'away_goals': dummy_match.away_goals,
+        'outcome': dummy_match.outcome
+    }])
+    
+    # Calculate features just for this match using historical context
+    features_df = engineer._calculate_single_match_features(
+        dummy_df.iloc[0], 
+        historical_matches, 
+        ratings
+    )
+    
+    return features_df
 
 
 def prepare_prediction_features(

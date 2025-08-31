@@ -62,7 +62,7 @@ scoreline:
 
 # Season simulation parameters
 simulation:
-  n_simulations: 100000           # High precision Monte Carlo runs
+  n_simulations: 1000             # Quick test run with full season
   random_seed: 42                 # For reproducibility
   use_head_to_head: true          # Use H2H for tie-breaking
 

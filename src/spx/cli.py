@@ -266,21 +266,27 @@ def predict(
     elo_system.update_ratings(historical_matches)
     rating_dict = elo_system.get_rating_history()
     
-    # Generate predictions
+    # Pre-calculate features for historical data once
+    logger.info(f"🔧 Pre-calculating features for {len(historical_matches)} historical matches")
+    from .core.features import FeatureEngineer
+    engineer = FeatureEngineer(lookback_games=cfg.features.lookback_games)
+    historical_features_df = engineer.create_features(historical_matches, rating_dict)
+    logger.info("✅ Historical features pre-calculated")
+    
+    # Generate predictions efficiently
     predictions = []
     
-    for fixture in fixtures:
-        logger.info(f"Predicting {fixture.home_team} vs {fixture.away_team}")
+    for i, fixture in enumerate(fixtures, 1):
+        if i % 50 == 0:
+            logger.info(f"📊 Predicting matches: {i}/{len(fixtures)}")
         
-        # Create features for this match
-        from .core.features import prepare_prediction_features
-        features = prepare_prediction_features(
+        # Create features for this match using pre-calculated historical features
+        features = engineer.create_single_prediction_features(
             fixture.home_team,
             fixture.away_team,
             fixture.date,
             historical_matches,
-            rating_dict,
-            cfg.features.lookback_games
+            rating_dict
         )
         
         # Get outcome prediction
